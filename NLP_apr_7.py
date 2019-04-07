@@ -9,9 +9,7 @@ df['combined_grade'] = 0
 #   as having those values as NaN doesn't make any sense since what is to grade when
 #   there isn't any stuff to actually grade
 
-df_simplified = df[
-    ['id', 'problem_id', 'cleaned_answer_text', 'grade_0', 'grade_1', 'grade_2', 'grade_3', 'grade_4', 'combined_grade',
-     'dataset']]
+df_simplified = df[['id', 'problem_id', 'cleaned_answer_text', 'grade_0', 'grade_1', 'grade_2', 'grade_3', 'grade_4', 'combined_grade', 'dataset']]
 
 print(df_simplified.loc[(df_simplified['problem_id'] == 1619)])
 
@@ -40,7 +38,6 @@ print(df_evaluation['problem_id'].unique().shape)
 print(df_evaluation['problem_id'].shape)
 print('\n----------------------\n')
 
-
 # print(' A - B : ', list(set(unique_train)-set(unique_eval)))
 # print(' B - A : ', list(set(unique_eval)-set(unique_train)))
 
@@ -50,10 +47,8 @@ def make_prediction():
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.preprocessing import LabelEncoder
     from sklearn.svm import LinearSVC
-    from sklearn.svm import SVC
-    from sklearn.metrics import roc_auc_score
     from sklearn.calibration import CalibratedClassifierCV
-    from sklearn.model_selection import train_test_split
+    # from sklearn.model_selection import train_test_split
     # import numpy as np
     # from sklearn import metrics
 
@@ -86,7 +81,7 @@ def make_prediction():
         print(x_test.shape)
         print('\n------------------------------------\n')
 
-        if (problem_id == 1619):
+        if(problem_id == 1619):
             print("this is where the crash happened")
 
         list_of_y = y_train.unique()
@@ -102,37 +97,46 @@ def make_prediction():
             if not x_test.empty and not x_test.isnull().all():
                 x_test.fillna(x_test.value_counts().argmax(), inplace=True)
 
-            x_train_train, x_train_test, y_train_train, y_train_test = train_test_split(x_train, y_train, test_size=0.3,
-                                                                                        random_state=42)
-
             tfidf_vectorizer = TfidfVectorizer(max_df=0.9, min_df=2, max_features=1000,
                                                stop_words='english')  # max_df=0.90, min_df=2, max_features=1000,
             tfidf_vectorizer.fit(pd.concat([x_train, x_test]))
-
-            tfidf_x_train_train = tfidf_vectorizer.transform(x_train_train)
-            tfidf_x_train_test = tfidf_vectorizer.transform(x_train_test)
+            tfidf_x_train = tfidf_vectorizer.transform(x_train)
             tfidf_x_test = tfidf_vectorizer.transform(x_test)
 
             labels = LabelEncoder()
             labels_y_train_bow = labels.fit(y_train)
             # labels_y_test_bow = labels.fit(y_test)
-            labels_y_train_tfidf = labels.transform(y_train_train)
-            labels_y_test_tfidf = labels.transform(y_train_test)
+            labels_y_train_tfidf = labels.transform(y_train)
+            # labels_y_test_tfidf = labels.transform(y_test)
 
-            svc_classifier = SVC(probability=True, kernel='rbf')
-            svc_classifier.fit(tfidf_x_train_train, labels_y_train_tfidf)
-            prediction = svc_classifier.predict_proba(tfidf_x_train_test)
-            print('\n ROC-AUC yields : ' + str(roc_auc_score(labels_y_test_tfidf, prediction[:, 1])))
+            # print('average accuracy of svc = {} \n')  # . format(np.mean(predicted == (labels_y_test_tfidf))))
+            # print(' the predicted values are: ')
+            # print('labels', labels.classes_)
 
-            predicted_df = pd.DataFrame(svc_classifier.predict_proba(tfidf_x_test) * 100, columns=labels.classes_)
+            linear_svc = LinearSVC()
+            clf = linear_svc.fit(tfidf_x_train, labels_y_train_tfidf)
+            calibrated_svc = CalibratedClassifierCV(base_estimator=linear_svc, cv="prefit")
+            calibrated_svc.fit(tfidf_x_train, labels_y_train_tfidf)
+            predicted = calibrated_svc.predict(tfidf_x_test)
+
+            predicted_df = pd.DataFrame(calibrated_svc.predict_proba(tfidf_x_test) * 100, columns=labels.classes_)
             # predicted_df['id'] = x_test_id['id'].astype(float)
             x_test_id.reset_index(drop=True, inplace=True)
             predicted_df.reset_index(drop=True, inplace=True)
             predicted_df2 = pd.concat([predicted_df, x_test_id], axis=1)
-            predicted_df2 = predicted_df2.loc[:, col_list].fillna(0)
+            predicted_df2= predicted_df2.loc[:, col_list].fillna(0)
 
             answers = pd.concat([answers, predicted_df2])
 
+            # answers.concat([answers, predicted_df])
+            # print(predicted_df)
+
+            # print('rmse : ', np.sqrt(metrics.mean_squared_error(labels_y_test_tfidf, predicted)))
+            #
+            # fpr, tpr, thresholds = metrics.roc_curve(labels_y_test_tfidf, predicted, pos_label=2)
+            # print('auc 2: ', metrics.roc_auc_score(labels_y_test_tfidf, predicted))
+            # rmse_array += (np.sqrt(metrics.mean_squared_error(labels_y_test_tfidf, predicted)))
+            # auc_array += (metrics.roc_auc_score(labels_y_test_tfidf, predicted))
         else:
             # print('all the labels were the same')
             list_input = [100, 0, 0, 0, 0, problem_id]
@@ -156,6 +160,14 @@ def make_prediction():
                 predicted_df2 = pd.concat([predicted_df, x_test_id], axis=1)
                 answers = pd.concat([answers, predicted_df2])
 
+
+
+
+
+
+
+    # print(' rmse : ', rmse_array/(count -1))
+    # print(' auc : ', auc_array/(count - 1))
     print('\n----------------------------------------\n')
     print(x_test.value_counts())
     print('\n----------------------------------------\n')
@@ -163,4 +175,3 @@ def make_prediction():
 
 
 make_prediction()
-
