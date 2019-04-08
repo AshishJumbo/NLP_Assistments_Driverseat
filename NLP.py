@@ -54,7 +54,7 @@ def make_prediction():
     from sklearn.metrics import roc_auc_score
     from sklearn.calibration import CalibratedClassifierCV
     from sklearn.model_selection import train_test_split
-    # import numpy as np
+    import numpy as np
     # from sklearn import metrics
 
     count = 0
@@ -64,11 +64,12 @@ def make_prediction():
     answers = pd.DataFrame({0.0: [], 0.25: [], 0.5: [], 0.75: [], 1.0: [], 'id': []})
     col_list = (answers).columns.tolist()
 
-    special_cases = [496, 1200, 1196, 1113, 210, 1418, 1419, 493, 494, 1219, 1067, 1083, 1427, 1151, 1316, 1106, 1092,
-                     1332, 1112, 244, 1120, 1169, 1170, 1171, 1172, 1173, 1174, 1175, 1182, 1188, 1217, 1222, 1228,
-                     1221, 1243, 1245, 1224, 1684, 1267, 1263, 8889, 1699]
-    # 496, 1113 had too many stop words
-    # 1200, 1196, 210, 1418 had no features left after pruning
+    special_cases = [496, 1200, 1196, 1619, 1113, 493, 494, 1219, 1316, 1106, 1092, 1332, 1112, 1120, 1169, 1172, 1173, 1182, 1188, 1217,
+                     1222, 1228, 1221, 1224]
+    # 83 has all ones only one 0
+    # 496, 494, 1092, 1120, 1217, 1228 only has stop words
+    # 1619 empty
+    # 493, 494, 1219, 1316, 1106, 1332, 1112, 1169, 1172, 1173, 1182, 1188, 1222, 1228, 1221, 1224 no terms remain after pruning
 
     for problem_id in unique_eval:
         # train = df_train_clean.loc[(df_train_clean['problem_id'] == problem_id)]['raw_answer_text']
@@ -82,36 +83,43 @@ def make_prediction():
         # print('most frequent occurance : ', x_train.value_counts().argmax())
 
         print('\n------------------------------------\n')
-        print(answers.shape)
-        print(x_test.shape)
-        print('\n------------------------------------\n')
-
-        if (problem_id == 1619):
-            print("this is where the crash happened")
+        # print(answers.shape)
+        # print(x_test.shape)
+        # print('\n------------------------------------\n')
 
         list_of_y = y_train.unique()
-        if (len(list_of_y) > 1) and (not problem_id in special_cases):
+
+        if (problem_id == 493):
+            test_sadfasdf = (min(y_train.value_counts().unique()) > 1)
+            print('break point here')
+
+        # the third condition 'th_flag' was put in because certain sets had only one graded as 0 and all
+        # graded as 1 which meant it couldn't be trained properly
+        th_flag = False
+        if (len(y_train) > 0) :
+            th_flag = (min(y_train.value_counts().unique()) > 1)
+        if (len(list_of_y) > 1) and (not problem_id in special_cases) and th_flag:
             # tf-idf feature matrix
             # TODO: this logic is wrong empty answers should be given a 0 where as argmax() gives the most frequent answer which might be scored as 1
             #  Solution: track their problem ids and make adjustments to the relevant locations?
 
-            if not x_train.empty and not x_train.isnull().all():
-                x_train.fillna(x_train.value_counts().argmax(), inplace=True)
-
-            # problem_id = 32 has NaN in the question as well -_-
-            if not x_test.empty and not x_test.isnull().all():
-                x_test.fillna(x_test.value_counts().argmax(), inplace=True)
+            # if not x_train.empty and not x_train.isnull().all():
+            #     x_train.fillna(x_train.value_counts().argmax(), inplace=True)
+            #
+            # # problem_id = 32 has NaN in the question as well -_-
+            # if not x_test.empty and not x_test.isnull().all():
+            #     x_test.fillna(x_test.value_counts().argmax(), inplace=True)
 
             x_train_train, x_train_test, y_train_train, y_train_test = train_test_split(x_train, y_train, test_size=0.3,
-                                                                                        random_state=42)
+                                                                                        random_state=42, stratify=y_train)
 
             tfidf_vectorizer = TfidfVectorizer(max_df=0.9, min_df=2, max_features=1000,
                                                stop_words='english')  # max_df=0.90, min_df=2, max_features=1000,
-            tfidf_vectorizer.fit(pd.concat([x_train, x_test]))
+            tfidf_vectorizer.fit(pd.concat([x_train, x_test]).values.astype('U'))
 
-            tfidf_x_train_train = tfidf_vectorizer.transform(x_train_train)
-            tfidf_x_train_test = tfidf_vectorizer.transform(x_train_test)
-            tfidf_x_test = tfidf_vectorizer.transform(x_test)
+            tfidf_x_train_train = tfidf_vectorizer.transform(x_train_train.values.astype('U'))
+            tfidf_x_train_test = tfidf_vectorizer.transform(x_train_test.values.astype('U'))
+            tfidf_x_test = tfidf_vectorizer.transform(x_test.values.astype('U'))
 
             labels = LabelEncoder()
             labels_y_train_bow = labels.fit(y_train)
@@ -122,7 +130,10 @@ def make_prediction():
             svc_classifier = SVC(probability=True, kernel='rbf')
             svc_classifier.fit(tfidf_x_train_train, labels_y_train_tfidf)
             prediction = svc_classifier.predict_proba(tfidf_x_train_test)
-            print('\n ROC-AUC yields : ' + str(roc_auc_score(labels_y_test_tfidf, prediction[:, 1])))
+            if( len(np.unique(labels_y_test_tfidf)) > 1  and len(labels.classes_) < 3) :
+                print('\n ROC-AUC yields : ' + str(roc_auc_score(labels_y_test_tfidf, prediction[:, 1])))
+            else:
+                print('\n ROC-AUC yields : 1; all the labels were the same thing')
 
             predicted_df = pd.DataFrame(svc_classifier.predict_proba(tfidf_x_test) * 100, columns=labels.classes_)
             # predicted_df['id'] = x_test_id['id'].astype(float)
@@ -140,8 +151,10 @@ def make_prediction():
 
             if len(list_of_y) == 1:
                 max_occurance = list_of_y[0]
-            else:
+            elif(len(y_train)>0):
                 max_occurance = y_train.value_counts().argmax()
+            else:
+                max_occurance = 0.00
 
             if not (max_occurance == 0.00 or max_occurance == 0.25):
                 list_input = [0, 0, 0, 0, 100, problem_id]
