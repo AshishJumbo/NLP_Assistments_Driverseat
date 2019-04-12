@@ -16,8 +16,8 @@ df_simplified = df[
 print(df_simplified.loc[(df_simplified['problem_id'] == 1619)])
 
 # df_simplified['combined_grade'].fillna(" ", inplace=True)
-df_training = df_simplified.loc[(df_simplified['dataset'] == 'training')]
-df_evaluation = df_simplified.loc[(df_simplified['dataset'] == 'evaluation')]
+df_training = df_simplified.loc[(df_simplified['dataset'] == 'training')] # shape(145638, 10)
+df_evaluation = df_simplified.loc[(df_simplified['dataset'] == 'evaluation')] # shape(2000, 10)
 print(df_training.shape)
 print(df_evaluation.shape)
 
@@ -55,6 +55,8 @@ def make_prediction():
     from sklearn.calibration import CalibratedClassifierCV
     from sklearn.model_selection import train_test_split
     import numpy as np
+    from sklearn.model_selection import cross_val_predict
+    import matplotlib.pyplot as plt
     # from sklearn import metrics
 
     count = 0
@@ -78,62 +80,63 @@ def make_prediction():
         x_test = df_evaluation.loc[(df_evaluation['problem_id'] == problem_id)]['cleaned_answer_text']
         x_test_id = df_evaluation.loc[(df_evaluation['problem_id'] == problem_id)][['id']]
         print('for problem id : ', problem_id)
-        # print(x_train.value_counts())
-        # print(x_train.head())
-        # print('most frequent occurance : ', x_train.value_counts().argmax())
-
-        print('\n------------------------------------\n')
-        # print(answers.shape)
-        # print(x_test.shape)
-        # print('\n------------------------------------\n')
 
         list_of_y = y_train.unique()
 
-        if (problem_id == 493):
-            test_sadfasdf = (min(y_train.value_counts().unique()) > 1)
-            print('break point here')
+        # if (problem_id == 493):
+        #     test_sadfasdf = (min(y_train.value_counts().unique()) > 1)
+        #     print('break point here')
 
         # the third condition 'th_flag' was put in because certain sets had only one graded as 0 and all
         # graded as 1 which meant it couldn't be trained properly
         th_flag = False
         if (len(y_train) > 0) :
             th_flag = (min(y_train.value_counts().unique()) > 1)
+
         if (len(list_of_y) > 1) and (not problem_id in special_cases) and th_flag:
             # tf-idf feature matrix
-            # TODO: this logic is wrong empty answers should be given a 0 where as argmax() gives the most frequent answer which might be scored as 1
-            #  Solution: track their problem ids and make adjustments to the relevant locations?
 
-            # if not x_train.empty and not x_train.isnull().all():
-            #     x_train.fillna(x_train.value_counts().argmax(), inplace=True)
-            #
-            # # problem_id = 32 has NaN in the question as well -_-
-            # if not x_test.empty and not x_test.isnull().all():
-            #     x_test.fillna(x_test.value_counts().argmax(), inplace=True)
+            # bag-of-words feature matrix
+            bow_vectorizer = CountVectorizer(max_df=0.90, min_df=2, max_features=1000, stop_words='english')
+            bow_matrix = bow_vectorizer.fit_transform(pd.concat([x_train, x_test]).values.astype('U'))
 
-            x_train_train, x_train_test, y_train_train, y_train_test = train_test_split(x_train, y_train, test_size=0.3,
-                                                                                        random_state=42, stratify=y_train)
+
+            print(bow_vectorizer.get_feature_names())
+            print('\n----------------------------------------')
+            print(bow_matrix.toarray())
+            print('\n----------------------------------------')
+
 
             tfidf_vectorizer = TfidfVectorizer(max_df=0.9, min_df=2, max_features=1000,
                                                stop_words='english')  # max_df=0.90, min_df=2, max_features=1000,
-            tfidf_vectorizer.fit(pd.concat([x_train, x_test]).values.astype('U'))
+            tfidf_vectorizer.fit(bow_matrix)
 
-            tfidf_x_train_train = tfidf_vectorizer.transform(x_train_train.values.astype('U'))
-            tfidf_x_train_test = tfidf_vectorizer.transform(x_train_test.values.astype('U'))
-            tfidf_x_test = tfidf_vectorizer.transform(x_test.values.astype('U'))
+            tfidf_x_train_train = tfidf_vectorizer.transform(x_train.values.astype('U'))
+            tfidf_x_train_test = tfidf_vectorizer.transform(x_test.values.astype('U'))
+            # tfidf_x_train_train = tfidf_vectorizer.fit_transform(bow_x_train)
+            # tfidf_x_test = tfidf_vectorizer.fit_transform(bow_x_test)
 
             labels = LabelEncoder()
             labels_y_train_bow = labels.fit(y_train)
             # labels_y_test_bow = labels.fit(y_test)
-            labels_y_train_tfidf = labels.transform(y_train_train)
+            labels_y_train_tfidf = labels.transform(y_train)
             labels_y_test_tfidf = labels.transform(y_train_test)
 
             svc_classifier = SVC(probability=True, kernel='rbf')
             svc_classifier.fit(tfidf_x_train_train, labels_y_train_tfidf)
+            # prediction = cross_val_predict(svc_classifier, tfidf_x_train_train, labels_y_train_tfidf, cv=3, method='predict_proba')
             prediction = svc_classifier.predict_proba(tfidf_x_train_test)
             if( len(np.unique(labels_y_test_tfidf)) > 1  and len(labels.classes_) < 3) :
                 print('\n ROC-AUC yields : ' + str(roc_auc_score(labels_y_test_tfidf, prediction[:, 1])))
             else:
                 print('\n ROC-AUC yields : 1; all the labels were the same thing')
+
+            # fig, ax = plt.subplots()
+            # ax.scatter(y_train, prediction, edgecolors=(0, 0, 0))
+            # ax.plot([0, 100], [0, 100], 'k--', lw=4)
+            # ax.set_xlabel('Measured')
+            # ax.set_ylabel('Predicted')
+            # plt.show()
 
             predicted_df = pd.DataFrame(svc_classifier.predict_proba(tfidf_x_test) * 100, columns=labels.classes_)
             # predicted_df['id'] = x_test_id['id'].astype(float)
